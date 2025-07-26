@@ -19,24 +19,30 @@ from helpers.general_utils import clear_terminal
 
 
 def parse_arguments() -> Namespace:
-    """Parse only the --disable-ui argument."""
+    """Parse only the --disable-ui and --resolution arguments."""
     parser = argparse.ArgumentParser(description="Acquire URL and other arguments.")
     parser.add_argument(
         "--disable-ui",
         action="store_true",
         help="Disable the user interface",
     )
+    parser.add_argument(
+        "--resolution",
+        type=str,
+        default="720p",
+        help="Set the resolution (e.g., '480p', '720p')",
+    )
     return parser.parse_args()
 
 
-def process_urls(urls: list[str], *, disable_ui: bool = False) -> None:
+def process_urls(urls: list[str], args: Namespace) -> None:
     """Validate and downloads items for a list of URLs."""
-    live_manager = initialize_managers(disable_ui=disable_ui)
+    live_manager = initialize_managers(disable_ui=args.disable_ui)
 
     try:
         with live_manager.live:
             for url in urls:
-                validate_and_download(url, live_manager)
+                validate_and_download(url, live_manager, args=args)
             live_manager.stop()
 
     except KeyboardInterrupt:
@@ -53,7 +59,7 @@ def main() -> None:
 
     # Read and process URLs
     urls = read_file(FILE)
-    process_urls(urls, disable_ui=args.disable_ui)
+    process_urls(urls, args)
 
     # Clear URLs file
     write_file(FILE)
