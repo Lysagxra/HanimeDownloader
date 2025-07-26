@@ -8,6 +8,7 @@
 
 - Downloads multiple files concurrently.
 - Supports [batch downloading](https://github.com/Lysagxra/HanimeDownloader/tree/main?tab=readme-ov-file#batch-download) via a list of URLs.
+- Supports [custom resolution](https://github.com/Lysagxra/HanimeDownloader/tree/main?tab=readme-ov-file#custom-resolution) download of episodes.
 - Tracks download progress with a progress bar.
 - Automatically creates a directory structure for organized storage.
 
@@ -59,9 +60,9 @@ cd HanimeDownloader
 pip install -r requirements.txt
 ```
 
-## Single Album Download
+## Single Episode Download
 
-To download a single album from an URL, you can use `hanime_downloader.py`, running the script with a valid album URL.
+To download a single hanime episode from an URL, you can use `hanime_downloader.py`, running the script with a valid album URL.
 
 ### Usage
 
@@ -102,6 +103,27 @@ python3 main.py
 
 3. The downloaded files will be saved in the `Downloads` directory.
 
+## Custom Resolution
+
+To download an episode (or all episodes in a session) in a certain resolution, you can use the `--resolution` command-line argument:
+
+```bash
+python3 hanime_downloader.py <episode_url> --resolution <resolution>
+```
+
+or
+
+```bash
+python3 main.py --resolution <resolution>
+```
+
+### Example
+
+```
+python3 hanime_downloader.py https://hanime.tv/videos/hentai/sukebe-elf-tanbouki-1 --resolution 480p
+```
+
+If not specified, the program will automatically select 720p as the default resolution.
 
 ## Logging
 
