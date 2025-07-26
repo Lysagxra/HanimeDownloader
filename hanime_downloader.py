@@ -45,12 +45,20 @@ def parse_arguments() -> Namespace:
         action="store_true",
         help="Disable the user interface",
     )
+    parser.add_argument(
+        "--resolution",
+        type=str,
+        default="720p",
+        help="Set the resolution (e.g., '480p', '720p')",
+    )
     return parser.parse_args()
 
 
-def validate_and_download(url: str, live_manager: LiveManager) -> None:
+def validate_and_download(url: str, live_manager: LiveManager, args: Namespace) -> None:
     """Validate the provided URL, and initiate the download process."""
-    episode_downloader = EpisodeDownloader(url=url, live_manager=live_manager)
+    episode_downloader = EpisodeDownloader(
+        url=url, live_manager=live_manager, args=args,
+    )
     episode_downloader.download()
 
 
@@ -62,7 +70,7 @@ def main() -> None:
 
     try:
         with live_manager.live:
-            validate_and_download(args.url, live_manager)
+            validate_and_download(args.url, live_manager, args)
             live_manager.stop()
 
     except KeyboardInterrupt:

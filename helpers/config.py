@@ -11,5 +11,9 @@ MAX_WORKERS = 8
 API_URL = "https://hanime.tv/api/v8"
 HANIME_NAME_PATTERN = r"https://hanime\.tv/videos/hentai/([A-Za-z0-9]+(-[A-Za-z0-9]+)+)"
 
-# Always pick the 720p resolution
-RESOLUTION_CHOICE = 1
+RESOLUTION_MAP = {
+    "1080p": 0,
+    "720p": 1,
+    "480p": 2,
+    "360p": 3,
+}

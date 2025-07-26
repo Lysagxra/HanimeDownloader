@@ -17,7 +17,7 @@ import httpx
 import m3u8
 from Cryptodome.Cipher import AES
 
-from helpers.config import MAX_WORKERS, RESOLUTION_CHOICE
+from helpers.config import MAX_WORKERS, RESOLUTION_MAP
 from helpers.general_utils import create_download_directory, validate_url
 
 from .crawler_utils import (
@@ -28,6 +28,8 @@ from .crawler_utils import (
 )
 
 if TYPE_CHECKING:
+    from argparse import Namespace
+
     from Cryptodome.Cipher._mode_cbc import CbcMode
 
     from helpers.managers.live_manager import LiveManager
@@ -40,11 +42,13 @@ class EpisodeDownloader:
         self,
         url: str,
         live_manager: LiveManager,
+        args: Namespace,
         max_workers: int = MAX_WORKERS,
     ) -> None:
         """Initialize the EpisodeDownloader instance."""
         self.episode_id = validate_url(url)
         self.live_manager = live_manager
+        self.args = args
         self.max_workers = max_workers
 
         # Extract the hanime info and video segments
@@ -127,11 +131,12 @@ class EpisodeDownloader:
             self.live_manager.update_log(event, message)
             sys.exit(1)
 
-        filename = format_filename(self.streams, self.episode_id)
+        filename = format_filename(self.streams, self.episode_id, self.args.resolution)
+        resolution = RESOLUTION_MAP[self.args.resolution]
         self.live_manager.add_overall_task(filename, num_tasks=1)
 
         try:
-            stream_url = self.streams[RESOLUTION_CHOICE]["url"]
+            stream_url = self.streams[resolution]["url"]
             m3u8_playlist = m3u8.loads(httpx.get(stream_url).text)
             segment_uris = m3u8_playlist.segments.uri
             final_path = Path(self.download_path) / filename

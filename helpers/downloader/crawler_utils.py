@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from helpers.config import API_URL, RESOLUTION_CHOICE
+from helpers.config import API_URL, RESOLUTION_MAP
 
 
 def get_hanime_info(video_id: str) -> dict[str, Any]:
@@ -22,7 +22,10 @@ def fetch_streams(info: dict[str, Any]) -> list[dict[str, Any]]:
     return info["videos_manifest"]["servers"][0]["streams"]
 
 
-def format_filename(streams: list[dict[str, Any]], video_id: str) -> str:
+def format_filename(
+    streams: list[dict[str, Any]], video_id: str, resolution_choice: str,
+) -> str:
     """Format the file name for the video based on the chosen stream resolution."""
-    resolution = streams[RESOLUTION_CHOICE]["height"]
+    resolution_indx = RESOLUTION_MAP[resolution_choice]
+    resolution = streams[resolution_indx]["height"]
     return f"{video_id}-{resolution}p.mp4"
