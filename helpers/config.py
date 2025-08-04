@@ -9,6 +9,7 @@ DOWNLOAD_FOLDER = "Downloads"
 MAX_WORKERS = 8
 
 API_URL = "https://hanime.tv/api/v8"
+VIDEO_URL = "https://hanime.tv/videos/hentai"
 HANIME_NAME_PATTERN = r"https://hanime\.tv/videos/hentai/([A-Za-z0-9]+(-[A-Za-z0-9]+)+)"
 
 RESOLUTION_MAP = {

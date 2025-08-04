@@ -11,20 +11,22 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import m3u8
 from Cryptodome.Cipher import AES
 
-from helpers.config import MAX_WORKERS, RESOLUTION_MAP
-from helpers.general_utils import create_download_directory, validate_url
+from helpers.config import MAX_WORKERS
+from helpers.general_utils import create_download_directory
 
 from .crawler_utils import (
     fetch_streams,
     format_filename,
+    get_episode_id,
     get_hanime_info,
     get_hanime_title,
+    select_and_validate_stream,
 )
 
 if TYPE_CHECKING:
@@ -46,18 +48,15 @@ class EpisodeDownloader:
         max_workers: int = MAX_WORKERS,
     ) -> None:
         """Initialize the EpisodeDownloader instance."""
-        self.episode_id = validate_url(url)
+        self.episode_id = get_episode_id(url)
         self.live_manager = live_manager
         self.args = args
         self.max_workers = max_workers
 
-        # Extract the hanime info and video segments
-        episode_info = get_hanime_info(self.episode_id)
-        self.streams = fetch_streams(episode_info)
-
-        # Create the download directory
-        self.hanime_title = get_hanime_title(episode_info)
-        self.download_path = create_download_directory(self.hanime_title)
+        # Lazy-loaded later
+        self._episode_info: dict[str, Any] | None = None
+        self._streams: dict[str, Any] | None = None
+        self._download_path: Path | None = None
 
     def download_segment(
         self,
@@ -124,6 +123,18 @@ class EpisodeDownloader:
 
                 video.write(segment_data)
 
+    def init_download(self) -> None:
+        """Initialize episode metadata, stream data, and download directory.
+
+        This method retrieves detailed episode information and available stream data
+        based on the episode ID. It also creates and stores the appropriate download
+        directory using the episode's title.
+        """
+        self._episode_info = get_hanime_info(self.episode_id)
+        self._streams = fetch_streams(self._episode_info)
+        hanime_title = get_hanime_title(self._episode_info)
+        self._download_path = create_download_directory(hanime_title)
+
     def download(self) -> None:
         """Process the video stream and downloads the video."""
 
@@ -131,24 +142,30 @@ class EpisodeDownloader:
             self.live_manager.update_log(event, message)
             sys.exit(1)
 
-        filename = format_filename(self.streams, self.episode_id, self.args.resolution)
-        resolution = RESOLUTION_MAP[self.args.resolution]
+        # Initialize the download process
+        self.init_download()
+
+        # Format the episode filename
+        filename = format_filename(self._streams, self.episode_id, self.args.resolution)
         self.live_manager.add_overall_task(filename, num_tasks=1)
 
         try:
-            stream_url = self.streams[resolution]["url"]
-            m3u8_playlist = m3u8.loads(httpx.get(stream_url).text)
-            segment_uris = m3u8_playlist.segments.uri
-            final_path = Path(self.download_path) / filename
+            selected_stream = select_and_validate_stream(
+                self.args.resolution, self._streams,
+            )
+            stream_url = selected_stream["url"]
 
-        except KeyError as key_err:
-            log_and_exit("Key error", key_err)
+            response = httpx.get(stream_url)
+            response.raise_for_status()
+
+            m3u8_playlist = m3u8.loads(response.text)
+            segment_uris = m3u8_playlist.segments.uri
+
+        except (KeyError, ValueError) as err:
+            log_and_exit(type(err).__name__, str(err))
 
         except httpx.RequestError as req_err:
             log_and_exit("Request error", req_err)
-
-        except ValueError as val_err:
-            log_and_exit("Value error", val_err)
 
         if not m3u8_playlist.keys or m3u8_playlist.keys[0] is None:
             log_and_exit("No decryption key", "Missing decryption key in playlist")
@@ -156,4 +173,6 @@ class EpisodeDownloader:
         key_uri = m3u8_playlist.keys[0].uri
         key_data = httpx.get(key_uri).content
         decryptor = AES.new(key_data, AES.MODE_CBC)
+
+        final_path = Path(self._download_path) / filename
         self.download_and_decrypt_segments(final_path, segment_uris, decryptor)

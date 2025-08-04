@@ -13,16 +13,7 @@ import re
 import sys
 from pathlib import Path
 
-from .config import DOWNLOAD_FOLDER, HANIME_NAME_PATTERN
-
-
-def validate_url(url: str) -> None:
-    """Validate the provided URL against a predefined pattern."""
-    if not re.compile(HANIME_NAME_PATTERN, re.IGNORECASE).match(url):
-        logging.warning("Invalid URL.")
-        sys.exit(0)
-
-    return url.split("/")[-1]
+from .config import DOWNLOAD_FOLDER
 
 
 def sanitize_directory_name(directory_name: str) -> str:
