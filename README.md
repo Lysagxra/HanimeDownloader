@@ -9,6 +9,7 @@
 - Downloads multiple files concurrently.
 - Supports [batch downloading](https://github.com/Lysagxra/HanimeDownloader/tree/main?tab=readme-ov-file#batch-download) via a list of URLs.
 - Supports [custom resolution](https://github.com/Lysagxra/HanimeDownloader/tree/main?tab=readme-ov-file#custom-resolution) download of episodes.
+- Supports [hanime series download](https://github.com/Lysagxra/HanimeDownloader/tree/main?tab=readme-ov-file#hanime_series_download).
 - Tracks download progress with a progress bar.
 - Automatically creates a directory structure for organized storage.
 
@@ -74,6 +75,20 @@ python3 hanime_downloader.py <episode_url>
 
 ```
 python3 hanime_downloader.py https://hanime.tv/videos/hentai/sukebe-elf-tanbouki-1
+```
+
+## Hanime Series Download
+
+To download all the episodes from a hanime series, you can use `hanime_downloader.py`, running the script with a valid album URL, and `--all-episodes` command-line argument:
+
+```bash
+python3 hanime_downloader.py <episode_url> --all-episodes
+```
+
+### Example
+
+```
+python3 hanime_downloader.py https://hanime.tv/videos/hentai/sukebe-elf-tanbouki-2 --all-episodes
 ```
 
 ## Batch Download
