@@ -138,7 +138,7 @@ python3 main.py --resolution <resolution>
 python3 hanime_downloader.py https://hanime.tv/videos/hentai/sukebe-elf-tanbouki-1 --resolution 480p
 ```
 
-If not specified, the program will automatically select 720p as the default resolution.
+If not specified, the program will automatically select `720p` as the default resolution. The supported resolutions are: `360p`, `480p`, and `720p`.
 
 ## Logging
 
