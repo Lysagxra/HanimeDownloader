@@ -9,7 +9,7 @@
 - Downloads multiple files concurrently.
 - Supports [batch downloading](https://github.com/Lysagxra/HanimeDownloader/tree/main?tab=readme-ov-file#batch-download) via a list of URLs.
 - Supports [custom resolution](https://github.com/Lysagxra/HanimeDownloader/tree/main?tab=readme-ov-file#custom-resolution) download of episodes.
-- Supports [hanime series download](https://github.com/Lysagxra/HanimeDownloader/tree/main?tab=readme-ov-file#hanime_series_download).
+- Supports [hanime series download](https://github.com/Lysagxra/HanimeDownloader/tree/main?tab=readme-ov-file#hanime-series-download).
 - Tracks download progress with a progress bar.
 - Automatically creates a directory structure for organized storage.
 
