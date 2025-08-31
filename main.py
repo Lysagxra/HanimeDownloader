@@ -13,7 +13,7 @@ import sys
 from argparse import Namespace
 
 from hanime_downloader import initialize_managers, validate_and_download
-from helpers.config import FILE
+from helpers.config import URLS_FILE
 from helpers.file_utils import read_file, write_file
 from helpers.general_utils import clear_terminal
 
@@ -58,11 +58,11 @@ def main() -> None:
     args = parse_arguments()
 
     # Read and process URLs
-    urls = read_file(FILE)
+    urls = read_file(URLS_FILE)
     process_urls(urls, args)
 
     # Clear URLs file
-    write_file(FILE)
+    write_file(URLS_FILE)
 
 
 if __name__ == "__main__":
