@@ -40,13 +40,11 @@ class LiveManager:
         self.progress_table = self.progress_manager.create_progress_table()
         self.logger = logger
         self.disable_ui = disable_ui
-
         self.live = (
             Live(self._render_live_view(), refresh_per_second=refresh_per_second)
             if not self.disable_ui
             else nullcontext()
         )
-
         self.start_time = time.time()
         self.update_log("Script started", "The script has started execution.")
 

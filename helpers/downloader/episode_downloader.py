@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 import m3u8
+from Crypto.Util.Padding import pad, unpad
 from Cryptodome.Cipher import AES
 
 from helpers.config import MAX_WORKERS
@@ -58,71 +59,6 @@ class EpisodeDownloader:
         self._streams: dict[str, Any] | None = None
         self._download_path: Path | None = None
 
-    def download_segment(
-        self,
-        segment_uri: str,
-        decryptor: CbcMode,
-        retries: int = 5,
-    ) -> bytes | None:
-        """Download and decrypt a single segment with retry logic."""
-        for attempt in range(retries):
-            try:
-                response = httpx.get(segment_uri)
-                response.raise_for_status()
-                return decryptor.decrypt(response.content)
-
-            except (httpx.HTTPStatusError, httpx.RequestError):
-                if attempt < retries - 1:
-                    delay = 3 ** (attempt + 1) + random.uniform(1, 3)  # noqa: S311
-                    time.sleep(delay)
-                    self.live_manager.update_log(
-                        "Request error",
-                        f"Retrying to download {self.episode_id}... "
-                        f"({attempt + 1}/{retries})",
-                    )
-                    continue
-
-        self.live_manager.update_log(
-            "Failed segment download",
-            f"Failed to download {segment_uri}",
-        )
-        return None
-
-    def download_and_decrypt_segments(
-        self,
-        final_path: str,
-        segment_uris: list[str],
-        decryptor: CbcMode,
-    ) -> None:
-        """Download and decrypt video segments concurrently and write them in order."""
-        total_segments = len(segment_uris)
-        task = self.live_manager.add_task()
-        results: list[bytes | None] = [None] * total_segments
-
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {
-                executor.submit(self.download_segment, uri, decryptor): segment_id
-                for segment_id, uri in enumerate(segment_uris)
-            }
-
-            for current_segment, future in enumerate(as_completed(futures)):
-                segment_id = futures[future]
-                results[segment_id] = future.result()
-                completed = ((current_segment + 1) / total_segments) * 100
-                self.live_manager.update_task(task, completed=completed)
-
-        # Write all segments in order
-        with Path(final_path).open("ab") as video:
-            for segment_id, segment_data in enumerate(results):
-                if segment_data is None:
-                    self.live_manager.update_log(
-                        "Missing video segment",
-                        f"Segment {segment_id} is missing, skipping.",
-                    )
-                    continue
-
-                video.write(segment_data)
-
     def init_download(self) -> None:
         """Initialize episode metadata, stream data, and download directory.
 
@@ -151,7 +87,8 @@ class EpisodeDownloader:
 
         try:
             selected_stream = select_and_validate_stream(
-                self.args.resolution, self._streams,
+                self.args.resolution,
+                self._streams,
             )
             stream_url = selected_stream["url"]
 
@@ -175,4 +112,98 @@ class EpisodeDownloader:
         decryptor = AES.new(key_data, AES.MODE_CBC)
 
         final_path = Path(self._download_path) / filename
-        self.download_and_decrypt_segments(final_path, segment_uris, decryptor)
+        self._download_and_decrypt_segments(final_path, segment_uris, decryptor)
+
+    # Private methods
+    def _decrypt_with_padding(
+        self, data: bytes, decryptor: CbcMode, segment_uri: str,
+    ) -> bytes:
+        """Decrypt the given data with padding handling."""
+        padded_data = pad(data, decryptor.block_size)
+        decrypted_data = decryptor.decrypt(padded_data)
+
+        try:
+            return unpad(decrypted_data, decryptor.block_size)
+
+        except ValueError:
+            self.live_manager.update_log(
+                "Decryption error",
+                f"Padding error for segment {segment_uri}. "
+                "Proceeding with partial data.",
+            )
+            return decrypted_data
+
+    def _download_segment(
+        self,
+        segment_uri: str,
+        decryptor: CbcMode,
+        retries: int = 10,
+        max_delay: int = 30,
+    ) -> bytes | None:
+        """Download and decrypt a single segment with retry logic."""
+        for attempt in range(retries):
+            try:
+                response = httpx.get(segment_uri)
+                response.raise_for_status()
+
+            except (httpx.HTTPStatusError, httpx.RequestError):
+                if attempt < retries - 1:
+                    backoff_delay = 2 ** (attempt + 1) + random.uniform(1, 3)  # noqa: S311
+                    delay = min(backoff_delay, max_delay)
+                    time.sleep(delay)
+                    self.live_manager.update_log(
+                        "Request error",
+                        f"Retrying to download segment {segment_uri}... "
+                        f"({attempt + 1}/{retries})",
+                    )
+                    continue
+
+            else:
+                data = response.content
+
+                # If the data length is not a multiple of the block size, apply
+                # padding before decryption
+                if len(data) % decryptor.block_size != 0:
+                    return self._decrypt_with_padding(data, decryptor, segment_uri)
+
+                return decryptor.decrypt(data)
+
+        self.live_manager.update_log(
+            "Failed segment download",
+            f"Failed to download {segment_uri}",
+        )
+        return None
+
+    def _download_and_decrypt_segments(
+        self,
+        final_path: str,
+        segment_uris: list[str],
+        decryptor: CbcMode,
+    ) -> None:
+        """Download and decrypt video segments concurrently and write them in order."""
+        total_segments = len(segment_uris)
+        task = self.live_manager.add_task()
+        results: list[bytes | None] = [None] * total_segments
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {
+                executor.submit(self._download_segment, uri, decryptor): segment_id
+                for segment_id, uri in enumerate(segment_uris)
+            }
+            for current_segment, future in enumerate(as_completed(futures)):
+                segment_id = futures[future]
+                results[segment_id] = future.result()
+                completed = ((current_segment + 1) / total_segments) * 100
+                self.live_manager.update_task(task, completed=completed)
+
+        # Write all segments in order
+        with Path(final_path).open("ab") as video:
+            for segment_id, segment_data in enumerate(results):
+                if segment_data is None:
+                    self.live_manager.update_log(
+                        "Missing video segment",
+                        f"Segment {segment_id} is missing, skipping.",
+                    )
+                    continue
+
+                video.write(segment_data)
