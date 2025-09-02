@@ -57,8 +57,8 @@ def main() -> None:
     # Parse arguments to get disable_ui flag
     args = parse_arguments()
 
-    # Read and process URLs
-    urls = read_file(URLS_FILE)
+    # Read and process URLs, ignoring empty lines
+    urls = [url.strip() for url in read_file(URLS_FILE) if url.strip()]
     process_urls(urls, args)
 
     # Clear URLs file
