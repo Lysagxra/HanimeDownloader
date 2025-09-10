@@ -14,10 +14,9 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
-from argparse import Namespace
+from argparse import ArgumentParser, Namespace
 
 from helpers.downloader.crawler_utils import (
     generate_all_episode_urls,
@@ -76,26 +75,35 @@ def initialize_managers(*, disable_ui: bool = False) -> LiveManager:
     return LiveManager(progress_manager, logger_table, disable_ui=disable_ui)
 
 
-def parse_arguments() -> Namespace:
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Acquire URL and other arguments.")
-    parser.add_argument("url", type=str, help="The URL to process")
-    parser.add_argument(
-        "--all-episodes",
-        action="store_true",
-        help="Download all hanime episodes",
-    )
+def add_disable_ui_argument(parser: ArgumentParser) -> None:
+    """Add the --disable-ui argument to any parser."""
     parser.add_argument(
         "--disable-ui",
         action="store_true",
         help="Disable the user interface",
     )
+
+
+def add_resolution_argument(parser: ArgumentParser) -> None:
+    """Add the --resolution argument to any parser."""
     parser.add_argument(
         "--resolution",
         type=str,
         default="720p",
         help="Set the resolution (e.g., '480p', '720p')",
     )
+
+def parse_arguments() -> Namespace:
+    """Parse command-line arguments."""
+    parser = ArgumentParser(description="Acquire URL and other arguments.")
+    parser.add_argument("url", type=str, help="The URL to process")
+    parser.add_argument(
+        "--all-episodes",
+        action="store_true",
+        help="Download all hanime episodes",
+    )
+    add_disable_ui_argument(parser)
+    add_resolution_argument(parser)
     return parser.parse_args()
 
 

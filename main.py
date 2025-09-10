@@ -12,7 +12,12 @@ import argparse
 import sys
 from argparse import Namespace
 
-from hanime_downloader import initialize_managers, validate_and_download
+from hanime_downloader import (
+    add_disable_ui_argument,
+    add_resolution_argument,
+    initialize_managers,
+    validate_and_download,
+)
 from helpers.config import URLS_FILE
 from helpers.file_utils import read_file, write_file
 from helpers.general_utils import clear_terminal
@@ -21,17 +26,8 @@ from helpers.general_utils import clear_terminal
 def parse_arguments() -> Namespace:
     """Parse only the --disable-ui and --resolution arguments."""
     parser = argparse.ArgumentParser(description="Acquire URL and other arguments.")
-    parser.add_argument(
-        "--disable-ui",
-        action="store_true",
-        help="Disable the user interface",
-    )
-    parser.add_argument(
-        "--resolution",
-        type=str,
-        default="720p",
-        help="Set the resolution (e.g., '480p', '720p')",
-    )
+    add_disable_ui_argument(parser)
+    add_resolution_argument(parser)
     return parser.parse_args()
 
 
