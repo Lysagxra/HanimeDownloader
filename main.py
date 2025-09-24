@@ -1,57 +1,39 @@
 """Module that provides functionality to read URLs from a file, and download from them.
 
-This module manages the entire download process by leveraging asynchronous
-operations, allowing for efficient handling of multiple URLs.
+This module manages the entire download process by leveraging asynchronous operations,
+allowing for efficient handling of multiple URLs.
 
 Usage:
     To run the module, execute the script directly. It will process URLs
-    listed in 'URLs.txt' and log the session activities in 'session_log.txt'.
+    listed in 'URLs.txt' and log the session activities in 'session.log'.
 """
 
-import argparse
 import sys
 from argparse import Namespace
 
-from hanime_downloader import (
-    add_disable_ui_argument,
-    add_resolution_argument,
-    initialize_managers,
-    validate_and_download,
-)
-from helpers.config import URLS_FILE
-from helpers.file_utils import read_file, write_file
-from helpers.general_utils import clear_terminal
-
-
-def parse_arguments() -> Namespace:
-    """Parse only the --disable-ui and --resolution arguments."""
-    parser = argparse.ArgumentParser(description="Acquire URL and other arguments.")
-    add_disable_ui_argument(parser)
-    add_resolution_argument(parser)
-    return parser.parse_args()
+from hanime_downloader import validate_and_download
+from src.config import URLS_FILE, parse_arguments
+from src.file_utils import read_file, write_file
+from src.general_utils import clear_terminal
+from src.managers.live_manager import initialize_managers
 
 
 def process_urls(urls: list[str], args: Namespace) -> None:
     """Validate and downloads items for a list of URLs."""
     live_manager = initialize_managers(disable_ui=args.disable_ui)
 
-    try:
-        with live_manager.live:
-            for url in urls:
-                validate_and_download(url, live_manager, args=args)
-            live_manager.stop()
+    with live_manager.live:
+        for url in urls:
+            validate_and_download(url, live_manager, args=args)
 
-    except KeyboardInterrupt:
-        sys.exit(1)
+        live_manager.stop()
 
 
 def main() -> None:
-    """Run the script and process URLs."""
-    # Clear the terminal
+    """Run the script."""
+    # Clear terminal and parse arguments
     clear_terminal()
-
-    # Parse arguments to get disable_ui flag
-    args = parse_arguments()
+    args = parse_arguments(common_only=True)
 
     # Read and process URLs, ignoring empty lines
     urls = [url.strip() for url in read_file(URLS_FILE) if url.strip()]
@@ -62,4 +44,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+
+    except KeyboardInterrupt:
+        sys.exit(1)
