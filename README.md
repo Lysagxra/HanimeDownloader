@@ -9,6 +9,7 @@
 - Downloads multiple files concurrently.
 - Supports [batch downloading](https://github.com/Lysagxra/HanimeDownloader/tree/main?tab=readme-ov-file#batch-download) via a list of URLs.
 - Supports [custom resolution](https://github.com/Lysagxra/HanimeDownloader/tree/main?tab=readme-ov-file#custom-resolution) download of episodes.
+- Supports [custom download location](https://github.com/Lysagxra/HanimeDownloader/tree/main?tab=readme-ov-file#file-download-location).
 - Supports [hanime series download](https://github.com/Lysagxra/HanimeDownloader/tree/main?tab=readme-ov-file#hanime-series-download).
 - Tracks download progress with a progress bar.
 - Automatically creates a directory structure for organized storage.
@@ -120,7 +121,21 @@ https://hanime.tv/videos/hentai/youkoso-sukebe-elf-no-mori-e-2
 python3 main.py
 ```
 
-3. The downloaded files will be saved in the `Downloads` directory.
+## File Download Location
+
+If the `--custom-path <custom_path>` argument is used, the downloaded files will be saved in `<custom_path>/Downloads`. Otherwise, the files will be saved in a `Downloads` folder created within the script's directory
+
+### Usage
+
+```bash
+python3 main.py --custom-path <custom_path>
+```
+
+### Example
+
+```bash
+python3 main.py --custom-path /path/to/external/drive
+```
 
 ## Custom Resolution
 
