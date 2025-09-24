@@ -2,7 +2,7 @@
 
 > A Python-based tool for downloading hanime from hanime.tv. This tool reads a list of URLs from a file and processes the downloads accordingly.
 
-![Demo](https://github.com/Lysagxra/HanimeDownloader/blob/b461174a58539aefaf4fd305db2d58a0eedbf167/misc/Demo.gif)
+![Demo](https://github.com/Lysagxra/HanimeDownloader/blob/307d02a82c64416e1bfb6546dbc3a516404c8f6a/assets/demo.gif)
 
 ## Features
 
@@ -21,7 +21,9 @@
 - `pycryptodomex` - for encryption, decryption, and other cryptographic operations
 - `rich` - for progress display in the terminal
 
-## Directory Structure
+<details>
+
+<summary>Show directory structure</summary>
 
 ```
 project-root/
@@ -40,6 +42,8 @@ project-root/
 ├── main.py                    # Main script to run the downloader
 └── URLs.txt                   # Text file listing album URLs to be downloaded
 ```
+
+</details>
 
 ## Installation
 
