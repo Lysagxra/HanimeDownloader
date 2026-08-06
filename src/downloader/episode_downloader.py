@@ -18,7 +18,9 @@ import m3u8
 from Crypto.Util.Padding import pad, unpad
 from Cryptodome.Cipher import AES
 
-from src.config import MAX_WORKERS
+from urllib.parse import urljoin
+
+from src.config import MAX_WORKERS, VIDEO_URL
 from src.file_utils import create_download_directory
 
 from .crawler_utils import (
@@ -32,8 +34,6 @@ from .crawler_utils import (
 
 if TYPE_CHECKING:
     from argparse import Namespace
-
-    from Cryptodome.Cipher._mode_cbc import CbcMode
 
     from src.managers.live_manager import LiveManager
 
@@ -92,7 +92,9 @@ class EpisodeDownloader:
                 self.args.resolution,
                 self._streams,
             )
-            stream_url = selected_stream["url"]
+            stream_url = selected_stream.get("src") or selected_stream["url"]
+            if not stream_url.startswith(("http://", "https://")):
+                stream_url = urljoin(VIDEO_URL, stream_url)
 
             response = httpx.get(stream_url)
             response.raise_for_status()
@@ -111,34 +113,18 @@ class EpisodeDownloader:
 
         key_uri = m3u8_playlist.keys[0].uri
         key_data = httpx.get(key_uri).content
-        decryptor = AES.new(key_data, AES.MODE_CBC)
+        media_sequence = m3u8_playlist.media_sequence
 
         final_path = Path(self._download_path) / filename
-        self._download_and_decrypt_segments(final_path, segment_uris, decryptor)
-
-    # Private methods
-    def _decrypt_with_padding(
-        self, data: bytes, decryptor: CbcMode, segment_uri: str,
-    ) -> bytes:
-        """Decrypt the given data with padding handling."""
-        padded_data = pad(data, decryptor.block_size)
-        decrypted_data = decryptor.decrypt(padded_data)
-
-        try:
-            return unpad(decrypted_data, decryptor.block_size)
-
-        except ValueError:
-            self.live_manager.update_log(
-                "Decryption error",
-                f"Padding error for segment {segment_uri}. "
-                "Proceeding with partial data.",
-            )
-            return decrypted_data
+        self._download_and_decrypt_segments(
+            final_path, segment_uris, key_data, media_sequence,
+        )
 
     def _download_segment(
         self,
         segment_uri: str,
-        decryptor: CbcMode,
+        segment_index: int,
+        decrypt_fn: Any,
         retries: int = 10,
         max_delay: int = 30,
     ) -> bytes | None:
@@ -161,14 +147,7 @@ class EpisodeDownloader:
                     continue
 
             else:
-                data = response.content
-
-                # If the data length is not a multiple of the block size, apply
-                # padding before decryption
-                if len(data) % decryptor.block_size != 0:
-                    return self._decrypt_with_padding(data, decryptor, segment_uri)
-
-                return decryptor.decrypt(data)
+                return decrypt_fn(response.content, segment_index)
 
         self.live_manager.update_log(
             "Failed segment download",
@@ -180,16 +159,31 @@ class EpisodeDownloader:
         self,
         final_path: str,
         segment_uris: list[str],
-        decryptor: CbcMode,
+        key_data: bytes,
+        media_sequence: int,
     ) -> None:
         """Download and decrypt video segments concurrently and write them in order."""
         total_segments = len(segment_uris)
         task = self.live_manager.add_task()
         results: list[bytes | None] = [None] * total_segments
 
+        def _decrypt_with_iv(data: bytes, segment_index: int) -> bytes:
+            iv = (media_sequence + segment_index).to_bytes(16, "big")
+            decryptor = AES.new(key_data, AES.MODE_CBC, iv=iv)
+            if len(data) % decryptor.block_size != 0:
+                padded_data = pad(data, decryptor.block_size)
+                decrypted_data = decryptor.decrypt(padded_data)
+                try:
+                    return unpad(decrypted_data, decryptor.block_size)
+                except ValueError:
+                    return decrypted_data
+            return decryptor.decrypt(data)
+
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {
-                executor.submit(self._download_segment, uri, decryptor): segment_id
+                executor.submit(
+                    self._download_segment, uri, segment_id, _decrypt_with_iv,
+                ): segment_id
                 for segment_id, uri in enumerate(segment_uris)
             }
             for current_segment, future in enumerate(as_completed(futures)):

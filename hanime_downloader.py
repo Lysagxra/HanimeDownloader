@@ -57,6 +57,14 @@ def handle_download_process(
     `validate_and_download`.
     """
     if args.all_episodes:
+        msg = (
+            "The --all-episodes feature is temporarily unavailable "
+            "due to a hanime.tv API redesign. Only the current episode "
+            "will be downloaded."
+        )
+        logging.warning(msg)
+        live_manager.update_log("All-episodes", msg)
+
         episode_id = get_episode_id(url)
         hanime_info = get_hanime_info(episode_id)
         episode_ids = get_all_episodes_ids(hanime_info)

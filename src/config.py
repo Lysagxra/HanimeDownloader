@@ -17,6 +17,8 @@ URLS_FILE = "URLs.txt"         # The file containing the list of URLs to process
 # ============================
 API_URL = "https://hanime.tv/api/v8"           # The API endpoint for Hanime video data.
 VIDEO_URL = "https://hanime.tv/videos/hentai"  # The base URL for Hanime video pages.
+AUTH_API_URL = "https://auth.hanime.tv"        # Authenticated API base URL.
+HANIME_CDN_URL = "https://hanime-cdn.com"      # CDN host for JS/WASM assets.
 
 # ============================
 # Regex Patterns
@@ -39,6 +41,34 @@ RESOLUTION_MAP = {
 # ============================
 # Argument Parsing
 # ============================
+
+# ============================
+# Handshake / Encryption
+# ============================
+AES_KEY = bytes.fromhex("5d657a4dcb0bad1c637ff2e221059b10ff17ae39fe855003e846918941f4ebe3")
+AES_HEADER = b"htv-insecure-v1"
+
+# ============================
+# JS / WASM Auth
+# ============================
+DENO_PREAMBLE = """
+delete globalThis.process;
+var window = new Proxy({
+    top: { location: { origin: "https://hanime.tv" } },
+    addEventListener: () => {},
+    dispatchEvent: () => {},
+}, {
+    set(o, k, v) {
+        if (k == "ssignature" || k == "stime")
+            console.log(k, v);
+        o[k] = v;
+        return true;
+    }
+});
+globalThis.window = window;
+"""
+
+
 def add_common_arguments(parser: ArgumentParser) -> None:
     """Add arguments shared across parsers."""
     parser.add_argument(
