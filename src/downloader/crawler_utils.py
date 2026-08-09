@@ -8,10 +8,10 @@ import re
 import subprocess
 import sys
 import time
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from typing import Any
 
 import httpx
-
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 
@@ -21,48 +21,52 @@ from src.config import (
     AUTH_API_URL,
     DENO_PREAMBLE,
     HANIME_NAME_PATTERN,
+    HOST_URL,
+    JS_VENDOR_PATTERN,
     RESOLUTION_MAP,
+    USER_AGENT,
+    VIDEO_TITLE_PATTERN,
     VIDEO_URL,
 )
 
 
 def _b64url_encode(data: bytes) -> str:
-    from base64 import urlsafe_b64encode
     return urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
 def _b64url_decode(data: str | bytes) -> bytes:
-    from base64 import urlsafe_b64decode
     if isinstance(data, str):
         data = data.encode("ascii", errors="ignore")
+
     return urlsafe_b64decode(data.ljust((len(data) // 4 + 1) * 4, b"="))
 
 
 def encrypt_token(payload: dict[str, Any]) -> str:
     """Encrypt a payload dict using AES-256-GCM (mirrors hanime.tv handshake)."""
     plaintext = json.dumps(payload, separators=(",", ":")).encode()
-    iv = get_random_bytes(12)
-    cipher = AES.new(AES_KEY, AES.MODE_GCM, nonce=iv)
+    nonce = get_random_bytes(12)
+    cipher = AES.new(AES_KEY, AES.MODE_GCM, nonce=nonce)
     cipher.update(AES_HEADER)
-    ciphertext, tag = cipher.encrypt_and_digest(plaintext)
+    cipher_text, tag = cipher.encrypt_and_digest(plaintext)
 
     result = {
         "v": 1,
         "alg": "AES-256-GCM",
-        "iv": _b64url_encode(iv),
+        "iv": _b64url_encode(nonce),
         "tag": _b64url_encode(tag),
-        "data": _b64url_encode(ciphertext),
+        "data": _b64url_encode(cipher_text),
     }
-    return _b64url_encode(json.dumps(result, separators=(",", ":")).encode())
+    encoded_result = json.dumps(result, separators=(",", ":")).encode()
+    return _b64url_encode(encoded_result)
 
 
 def decrypt_token(token: str) -> dict[str, Any]:
     """Decrypt an AES-256-GCM-encrypted handshake token."""
     decoded = json.loads(_b64url_decode(token))
-    iv = _b64url_decode(decoded["iv"])
+    nonce = _b64url_decode(decoded["iv"])
     tag = _b64url_decode(decoded["tag"])
     data = _b64url_decode(decoded["data"])
-    cipher = AES.new(AES_KEY, AES.MODE_GCM, nonce=iv)
+    cipher = AES.new(AES_KEY, AES.MODE_GCM, nonce=nonce)
     cipher.update(AES_HEADER)
     plaintext = cipher.decrypt_and_verify(data, tag)
     return json.loads(plaintext.decode())
@@ -79,13 +83,12 @@ def get_episode_id(url: str) -> str | None:
 
 def _find_vendor_js_url(page_html: str) -> str:
     """Extract the vendor JS URL (containing embedded WASM) from the page HTML."""
-    match = re.search(
-        r'<script[^>]*src="(https://hanime-cdn\.com/js/vendor\.[^"]+)"',
-        page_html,
-    )
+    match = re.search(JS_VENDOR_PATTERN, page_html)
+
     if not match:
         msg = "Could not find vendor JS URL on page"
         raise ValueError(msg)
+
     return match.group(1)
 
 
@@ -93,19 +96,19 @@ def _generate_credentials(vendor_js: str) -> tuple[str, int]:
     """Run vendor JS (with embedded WASM) in Deno to extract ssignature and stime."""
     script = DENO_PREAMBLE + vendor_js
     try:
-        result = subprocess.run(
-            ["deno", "run", "-"],
+        result = subprocess.run(  # noqa: S603
+            ["deno", "run", "-"],  # noqa: S607
             input=script,
             capture_output=True,
             text=True,
             timeout=30,
+            check=True,
         )
+
     except FileNotFoundError:
-        msg = (
-            "Deno is required but not found. "
-            "Install it from https://deno.land"
-        )
+        msg = "Deno is required but not found. Install it from https://deno.land"
         raise RuntimeError(msg) from None
+
     except subprocess.TimeoutExpired:
         msg = "Deno WASM auth script timed out"
         raise RuntimeError(msg) from None
@@ -116,6 +119,7 @@ def _generate_credentials(vendor_js: str) -> tuple[str, int]:
 
     lines = result.stdout.strip().split("\n", 1)
     creds: dict[str, str] = {}
+
     for line in lines:
         if " " in line:
             key, val = line.split(" ", 1)
@@ -126,48 +130,41 @@ def _generate_credentials(vendor_js: str) -> tuple[str, int]:
     return ssignature, int(stime_str)
 
 
-def get_hanime_info(video_id: str) -> dict[str, Any]:
-    """Retrieve video stream information via the new handshake API."""
-    # Fetch the video page to get vendor JS URL and page content
+def fetch_video_page(video_id: str) -> str:
+    """Fetch the video page to get vendor JS URL and page content."""
     page_url = f"{VIDEO_URL}/{video_id}"
-    page_resp = httpx.get(
+    response = httpx.get(
         page_url,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (X11; Linux x86_64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-        },
+        headers={"User-Agent": USER_AGENT},
         timeout=30,
     )
-    page_resp.raise_for_status()
-    page_html = page_resp.text
+    response.raise_for_status()
+    return response.text
 
-    # Extract video title from page
-    title_match = re.search(r"<h1[^>]+?>([^<]+)", page_html)
-    hanime_title = title_match.group(1).strip() if title_match else video_id
 
-    # Download the vendor JS containing embedded WASM
+def extract_video_title(page_html: str, video_id: str) -> str:
+    """Extract video title from page."""
+    title_match = re.search(VIDEO_TITLE_PATTERN, page_html)
+    return title_match.group(1).strip() if title_match else video_id
+
+
+def extract_vendor_js(page_html: str) -> str:
+    """Fetch the vendor JavaScript from the video page."""
     vendor_js_url = _find_vendor_js_url(page_html)
-    vendor_resp = httpx.get(
+    vendor_response = httpx.get(
         vendor_js_url,
         headers={
-            "Referer": "https://hanime.tv/",
-            "User-Agent": (
-                "Mozilla/5.0 (X11; Linux x86_64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
+            "Referer": HOST_URL,
+            "User-Agent": USER_AGENT,
         },
         timeout=30,
     )
-    vendor_resp.raise_for_status()
-    vendor_js = vendor_resp.text
+    vendor_response.raise_for_status()
+    return vendor_response.text
 
-    # Generate handshake credentials via Deno + WASM
-    ssignature, stime = _generate_credentials(vendor_js)
 
+def perform_handshake(video_id: str, signature: str, timestamp: int) -> str:
+    """Perform the video handshake and return the encrypted X-Token."""
     # Build and encrypt handshake payload
     payload = encrypt_token({
         "timestamp_unix": int(time.time()),
@@ -175,39 +172,48 @@ def get_hanime_info(video_id: str) -> dict[str, Any]:
         "slug": video_id,
     })
 
-    # Perform handshake
-    handshake_resp = httpx.post(
+    handshake_response = httpx.post(
         f"{AUTH_API_URL}/api/v11/handshake",
         json={"token": payload},
         headers={
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "Origin": "https://hanime.tv",
-            "Referer": "https://hanime.tv/",
+            "Origin": HOST_URL,
+            "Referer": HOST_URL,
             "X-Csrf-Token": "null",
-            "X-Signature": ssignature,
-            "X-Time": str(stime),
+            "X-Signature": signature,
+            "X-Time": str(timestamp),
             "X-Signature-Version": "web2",
-            "User-Agent": (
-                "Mozilla/5.0 (X11; Linux x86_64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": USER_AGENT,
         },
         timeout=30,
     )
-    handshake_resp.raise_for_status()
+    handshake_response.raise_for_status()
 
-    # Decrypt the x-token header to get stream sources
-    x_token = handshake_resp.headers.get("X-Token")
+    # Extract the encrypted X-Token from the response
+    x_token = handshake_response.headers.get("X-Token")
     if not x_token:
         msg = "Handshake response missing X-Token header"
         raise ValueError(msg)
 
+    return x_token
+
+
+def get_hanime_info(video_id: str) -> dict[str, Any]:
+    """Retrieve video stream information via the new handshake API."""
+    page_html = fetch_video_page(video_id)
+    title = extract_video_title(page_html, video_id)
+
+    # Generate handshake credentials via Deno + WASM
+    vendor_js = extract_vendor_js(page_html)
+    signature, timestamp = _generate_credentials(vendor_js)
+
+    # Extract and decrypt the X-Token from the response
+    x_token = perform_handshake(video_id, signature, timestamp)
     manifest = decrypt_token(x_token)
 
     return {
-        "title": hanime_title,
+        "title": title,
         "slug": video_id,
         "sources": manifest.get("sources", []),
     }
@@ -216,13 +222,12 @@ def get_hanime_info(video_id: str) -> dict[str, Any]:
 def get_all_episodes_ids(info: dict[str, Any]) -> list[str]:
     """Extract the episode IDs (slugs) for a hanime series.
 
-    NOTE: The new hanime.tv API no longer returns franchise episode data
-    in the handshake response. This function returns an empty list as
-    a placeholder.
+    NOTE: The new hanime.tv API no longer returns franchise episode data in the
+    handshake response. This function returns an empty list as a placeholder.
     """
     logging.warning(
         "All-episodes mode is not supported with the current hanime.tv API. "
-        "Only the current episode will be downloaded."
+        "Only the current episode will be downloaded.",
     )
     return [info.get("slug", "")] if info.get("slug") else []
 
@@ -254,7 +259,6 @@ def select_and_validate_stream(
     If none is found, falls back to any guest-accessible stream.
     """
     resolution_indx = RESOLUTION_MAP.get(resolution_choice, 0)
-
     target_height = resolution_choice.lower().replace("p", "")
 
     def is_valid_stream(stream: dict[str, Any]) -> bool:

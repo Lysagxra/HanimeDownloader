@@ -19,16 +19,26 @@ API_URL = "https://hanime.tv/api/v8"           # The API endpoint for Hanime vid
 VIDEO_URL = "https://hanime.tv/videos/hentai"  # The base URL for Hanime video pages.
 AUTH_API_URL = "https://auth.hanime.tv"        # Authenticated API base URL.
 HANIME_CDN_URL = "https://hanime-cdn.com"      # CDN host for JS/WASM assets.
+HOST_URL = "https://hanime.tv/"
 
 # ============================
 # Regex Patterns
 # ============================
 HANIME_NAME_PATTERN = r"https://hanime\.tv/videos/hentai/([A-Za-z0-9]+(-[A-Za-z0-9]+)+)"
+JS_VENDOR_PATTERN = r'<script[^>]*src="(https://hanime-cdn\.com/js/vendor\.[^"]+)"'
+VIDEO_TITLE_PATTERN = r"<h1[^>]+?>([^<]+)"
 
 # ============================
 # Download Settings
 # ============================
+USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
 MAX_WORKERS = 8  # The maximum number of threads for concurrent downloads.
+MAX_RETRIES = 10
+MAX_DELAY = 30
 
 # Resolution map for selecting video quality
 RESOLUTION_MAP = {
@@ -39,13 +49,11 @@ RESOLUTION_MAP = {
 }
 
 # ============================
-# Argument Parsing
-# ============================
-
-# ============================
 # Handshake / Encryption
 # ============================
-AES_KEY = bytes.fromhex("5d657a4dcb0bad1c637ff2e221059b10ff17ae39fe855003e846918941f4ebe3")
+AES_KEY = bytes.fromhex(
+    "5d657a4dcb0bad1c637ff2e221059b10ff17ae39fe855003e846918941f4ebe3",
+)
 AES_HEADER = b"htv-insecure-v1"
 
 # ============================
@@ -68,7 +76,9 @@ var window = new Proxy({
 globalThis.window = window;
 """
 
-
+# ============================
+# Argument Parsing
+# ============================
 def add_common_arguments(parser: ArgumentParser) -> None:
     """Add arguments shared across parsers."""
     parser.add_argument(

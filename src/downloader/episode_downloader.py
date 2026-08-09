@@ -12,15 +12,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urljoin
 
 import httpx
 import m3u8
 from Crypto.Util.Padding import pad, unpad
 from Cryptodome.Cipher import AES
 
-from urllib.parse import urljoin
-
-from src.config import MAX_WORKERS, VIDEO_URL
+from src.config import MAX_DELAY, MAX_RETRIES, MAX_WORKERS, VIDEO_URL
 from src.file_utils import create_download_directory
 
 from .crawler_utils import (
@@ -73,6 +72,20 @@ class EpisodeDownloader:
             hanime_title, custom_path=self.args.custom_path,
         )
 
+    def _fetch_playlist(self, stream_url: str) -> tuple[m3u8.M3U8, bytes]:
+        """Fetch the stream playlist and its decryption key."""
+        response = httpx.get(stream_url)
+        response.raise_for_status()
+
+        m3u8_playlist = m3u8.loads(response.text)
+        if not m3u8_playlist.keys or m3u8_playlist.keys[0] is None:
+            self.live_manager("No decryption key", "Missing decryption key in playlist")
+            sys.exit(1)
+
+        key_uri = m3u8_playlist.keys[0].uri
+        key_data = httpx.get(key_uri).content
+        return m3u8_playlist, key_data
+
     def download(self) -> None:
         """Process the video stream and downloads the video."""
 
@@ -99,21 +112,15 @@ class EpisodeDownloader:
             response = httpx.get(stream_url)
             response.raise_for_status()
 
-            m3u8_playlist = m3u8.loads(response.text)
-            segment_uris = m3u8_playlist.segments.uri
-
         except (KeyError, ValueError) as err:
             log_and_exit(type(err).__name__, str(err))
 
         except httpx.RequestError as req_err:
             log_and_exit("Request error", req_err)
 
-        if not m3u8_playlist.keys or m3u8_playlist.keys[0] is None:
-            log_and_exit("No decryption key", "Missing decryption key in playlist")
-
-        key_uri = m3u8_playlist.keys[0].uri
-        key_data = httpx.get(key_uri).content
-        media_sequence = m3u8_playlist.media_sequence
+        m3u8_playlist, key_data = self._fetch_playlist(stream_url)
+        segment_uris = m3u8_playlist.segments.uri
+        media_sequence = m3u8_playlist.media_sequence  # pylint: disable=no-member
 
         final_path = Path(self._download_path) / filename
         self._download_and_decrypt_segments(
@@ -124,25 +131,23 @@ class EpisodeDownloader:
         self,
         segment_uri: str,
         segment_index: int,
-        decrypt_fn: Any,
-        retries: int = 10,
-        max_delay: int = 30,
+        decrypt_fn: callable,
     ) -> bytes | None:
         """Download and decrypt a single segment with retry logic."""
-        for attempt in range(retries):
+        for attempt in range(MAX_RETRIES):
             try:
                 response = httpx.get(segment_uri)
                 response.raise_for_status()
 
             except (httpx.HTTPStatusError, httpx.RequestError):
-                if attempt < retries - 1:
+                if attempt < MAX_RETRIES - 1:
                     backoff_delay = 2 ** (attempt + 1) + random.uniform(1, 3)  # noqa: S311
-                    delay = min(backoff_delay, max_delay)
+                    delay = min(backoff_delay, MAX_DELAY)
                     time.sleep(delay)
                     self.live_manager.update_log(
                         "Request error",
                         f"Retrying to download segment {segment_uri}... "
-                        f"({attempt + 1}/{retries})",
+                        f"({attempt + 1}/{MAX_RETRIES})",
                     )
                     continue
 
@@ -163,20 +168,24 @@ class EpisodeDownloader:
         media_sequence: int,
     ) -> None:
         """Download and decrypt video segments concurrently and write them in order."""
-        total_segments = len(segment_uris)
+        num_segments = len(segment_uris)
         task = self.live_manager.add_task()
-        results: list[bytes | None] = [None] * total_segments
+        results: list[bytes | None] = [None] * num_segments
 
         def _decrypt_with_iv(data: bytes, segment_index: int) -> bytes:
             iv = (media_sequence + segment_index).to_bytes(16, "big")
             decryptor = AES.new(key_data, AES.MODE_CBC, iv=iv)
+
             if len(data) % decryptor.block_size != 0:
                 padded_data = pad(data, decryptor.block_size)
                 decrypted_data = decryptor.decrypt(padded_data)
+
                 try:
                     return unpad(decrypted_data, decryptor.block_size)
+
                 except ValueError:
                     return decrypted_data
+
             return decryptor.decrypt(data)
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -186,10 +195,11 @@ class EpisodeDownloader:
                 ): segment_id
                 for segment_id, uri in enumerate(segment_uris)
             }
+
             for current_segment, future in enumerate(as_completed(futures)):
                 segment_id = futures[future]
                 results[segment_id] = future.result()
-                completed = ((current_segment + 1) / total_segments) * 100
+                completed = ((current_segment + 1) / num_segments) * 100
                 self.live_manager.update_task(task, completed=completed)
 
         # Write all segments in order
